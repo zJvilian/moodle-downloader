@@ -43,7 +43,7 @@ Das installiert:
 - `requests` - HTTP-Downloads
 - `webdriver-manager` - Automatische Browser-Treiber
 
-### Schritt 4: Browser installieren
+### Schritt 4: Browser installieren (ignorieren)
 
 Einer der folgenden Browser muss installiert sein:
 - [Mozilla Firefox](https://www.mozilla.org/firefox/) (empfohlen)
