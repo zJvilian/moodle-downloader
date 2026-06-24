@@ -1,0 +1,44 @@
+# Credentials (sensitive!)
+#credentials.json
+
+# Downloads
+downloads/
+
+# Logs
+*.log
+download_log_*.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI/Agent files
+TODO.md
+.pi/
+
+# Selenium/WebDriver
+geckodriver.log
+*.geckodriver
+
+# Screenshots (debug)
+*.png
