@@ -67,8 +67,7 @@ Erstelle eine `credentials.json` im Projektverzeichnis:
 
 ## Nutzung
 
-
-### Option 3: GUI
+### Option 1: GUI
 
 Doppelklick auf `start_ui.py` oder:
 
