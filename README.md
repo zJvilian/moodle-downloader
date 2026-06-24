@@ -67,23 +67,23 @@ Erstelle eine `credentials.json` im Projektverzeichnis:
 
 ## Nutzung
 
-### Option 1: BAT-Menü (Einfachster Weg)
 
-Doppelklick auf `download.bat`:
+### Option 3: GUI
 
-```
-========================================
-   Moodle Kurs-Downloader v2.0
-========================================
+Doppelklick auf `start_ui.py` oder:
 
-[1] Download-Verzeichnis
-[2] Login-Daten
-[3] Moodle-Kurs-URL(s)
-[4] Was herunterladen?
-[5] Scraping-Tiefe
+```bash
+python -m moodle_download.ui
 ```
 
-Folge den Anweisungen im Menü.
+Die GUI bietet:
+- Eingabefeld für URL(s)
+- Ausgabeverzeichnis auswählen
+- Checkboxen für Download-Typen
+- Update-Modus Checkbox
+- Live-Log mit Fortschritt
+
+--- 
 
 ### Option 2: Kommandozeile
 
@@ -111,21 +111,6 @@ python -m moodle_download URL --update
 ```bash
 python -m moodle_download URL --force
 ```
-
-### Option 3: GUI
-
-Doppelklick auf `start_ui.py` oder:
-
-```bash
-python -m moodle_download.ui
-```
-
-Die GUI bietet:
-- Eingabefeld für URL(s)
-- Ausgabeverzeichnis auswählen
-- Checkboxen für Download-Typen
-- Update-Modus Checkbox
-- Live-Log mit Fortschritt
 
 ## Parameter
 
