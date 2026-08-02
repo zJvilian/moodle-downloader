@@ -20,7 +20,7 @@ class DownloadLogger:
         self.start_time = time.time()
         
         with open(self.log_file, "w", encoding="utf-8") as f:
-            f.write(f"Moodle Download Log\n")
+            f.write("Moodle Download Log\n")
             f.write(f"{'=' * 60}\n")
             f.write(f"Gestartet: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
     
@@ -51,7 +51,7 @@ class DownloadLogger:
         elapsed = time.time() - self.start_time
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"\n{'=' * 60}\n")
-            f.write(f"ZUSAMMENFASSUNG\n")
+            f.write("ZUSAMMENFASSUNG\n")
             f.write(f"{'=' * 60}\n")
             f.write(f"Kurs: {course_title}\n")
             f.write(f"URL: {course_url}\n")
@@ -61,12 +61,12 @@ class DownloadLogger:
             f.write(f"Fehler: {len(self.errors)}\n\n")
             
             if self.skipped:
-                f.write(f"\nUEBERSPRUNGENE ACTIVITIES:\n")
+                f.write("\nUEBERSPRUNGENE ACTIVITIES:\n")
                 for name, reason in self.skipped:
                     f.write(f"  - {name}: {reason}\n")
             
             if self.errors:
-                f.write(f"\nFEHLER:\n")
+                f.write("\nFEHLER:\n")
                 for name, error in self.errors:
                     f.write(f"  - {name}: {error}\n")
         

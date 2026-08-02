@@ -1,56 +1,31 @@
-"""Quiz scraper."""
+"""Moodle quiz scraper for all content visible without starting an attempt."""
 
-import re
-from ..downloader import safe_filename, scrape_page_with_requests
-from ..parsers import html_to_markdown, check_for_locked_content
+from ..downloader import activity_directory, scrape_page_with_requests
+from ..parsers import check_for_locked_content
+from .common import content_markdown, crawl_activity_pages, download_all_links, write_markdown
 
 
 def scrape_quiz_fast(url: str, section_dir, cookies: dict, name: str) -> int:
-    """Scrape a quiz: description and info."""
-    count = 0
-    safe = safe_filename(name)
-    
-    html = scrape_page_with_requests(url, cookies)
-    if not html:
+    first_html = scrape_page_with_requests(url, cookies)
+    if not first_html:
         return 0
-    
-    is_locked, reason = check_for_locked_content(html)
-    if is_locked:
-        print(f"\n      🔒 {reason[:50]}")
+    locked, reason = check_for_locked_content(first_html)
+    if locked:
+        print(f"\n      🔒 {reason[:60]}")
         return -1
-    
-    desc_content = ""
-    for pattern in [
-        r'<div[^>]*class="[^"]*quiz-intro[^"]*"[^>]*>(.*?)</div>',
-        r'<div[^>]*id="intro"[^>]*>(.*?)</div>',
-        r'<div[^>]*class="[^"]*no-overflow[^"]*"[^>]*>(.*?)</div>',
-    ]:
-        match = re.search(pattern, html, re.DOTALL)
-        if match:
-            desc_content = html_to_markdown(match.group(1))
-            if desc_content:
-                break
-    
-    quiz_info = ""
-    info_parts = []
-    for label, pattern in [('Zeitlimit', r'Zeitlimit.*?<.*?>([^<]+)'), ('Versuche', r'Versuche.*?<.*?>([^<]+)')]:
-        match = re.search(pattern, html, re.IGNORECASE)
-        if match:
-            info_parts.append(f"- **{label}:** {match.group(1).strip()}")
-    if info_parts:
-        quiz_info = "## Info\n\n" + "\n".join(info_parts)
-    
-    content_parts = [f"# {name}", f"\n[Quiz in Moodle oeffnen]({url})\n"]
-    if desc_content:
-        content_parts.append(f"\n## Beschreibung\n\n{desc_content}")
-    if quiz_info:
-        content_parts.append(f"\n{quiz_info}")
-    
-    if desc_content or quiz_info:
-        md_file = section_dir / f"{safe}.md"
-        with open(md_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(content_parts))
-        print(f"\n      ❓ {safe[:50]}.md")
+
+    activity_dir = activity_directory(section_dir, name)
+    documents = []
+    seen_content = set()
+    seen_files: set[str] = set()
+    count = 0
+    for number, (page_url, html) in enumerate(crawl_activity_pages(url, cookies, "quiz", first_html=first_html), 1):
+        content = content_markdown(html, page_url)
+        if content and content not in seen_content:
+            seen_content.add(content)
+            documents.append(f"## Ansicht {number}\n\n**Quelle:** {page_url}\n\n{content}")
+        count += download_all_links(html, page_url, activity_dir / "attachments", cookies, name, seen_files)
+    if write_markdown(activity_dir / "content.md", name, url, "\n\n---\n\n".join(documents)):
+        print(f"\n      ❓ {activity_dir.name[:45]}/content.md")
         count += 1
-    
     return count

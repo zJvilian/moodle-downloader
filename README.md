@@ -5,11 +5,15 @@ Lade **alle** Inhalte eines Moodle-Kurses herunter: Dateien, Beschreibungen, For
 ## Features
 
 - 📥 Kompletter Download aller Inhaltstypen
-- 🔗 Tiefes Scraping - folgt jedem Activity-Link
+- 🧭 Korrekte, verschachtelte Kursstruktur mit sprechenden Ordnern wie `Abschnitt_5_Wahrscheinlichkeitsrechnung`
+- 🔗 Tiefes Scraping - folgt sicheren Ansichten jeder Activity und lädt auch eingebettete Anhänge
+- 🎬 YouTube-Links wahlweise nur speichern oder das einzelne Video herunterladen
+- 🌍 Geeignete externe Webseiten zusätzlich als bereinigtes Markdown archivieren
 - 🧹 Saubere Dateinamen (URL-Encoding wird dekodiert)
 - 📋 Download-Log mit Details
 - 🎯 Filterbare Download-Typen
 - 🔄 Update-Modus - nur neue/geänderte Dateien
+- 🧠 AI-ready Modus mit Strukturkarte, Manifest und geordneten Kontext-Paketen
 - 🌐 Browser-Fallback (Firefox → Chrome → Edge)
 - 🖥️ Drei Start-Methoden: BAT, Kommandozeile, GUI
 
@@ -17,11 +21,11 @@ Lade **alle** Inhalte eines Moodle-Kurses herunter: Dateien, Beschreibungen, For
 
 ### Schritt 1: Python installieren
 
-Python 3.8+ von [python.org](https://www.python.org/downloads/) herunterladen.
+Python 3.10+ von [python.org](https://www.python.org/downloads/) herunterladen.
 
 **Wichtig:** Bei der Installation "Add Python to PATH" aktivieren!
 
-![Python PATH](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
+![Python PATH](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python)
 
 ### Schritt 2: Repository klonen
 
@@ -42,6 +46,7 @@ Das installiert:
 - `selenium` - Browser-Automatisierung
 - `requests` - HTTP-Downloads
 - `webdriver-manager` - Automatische Browser-Treiber
+- `yt-dlp` - Optional aktivierter YouTube-Video-Download
 
 ### Schritt 4: Browser installieren (ignorieren)
 
@@ -69,18 +74,24 @@ Erstelle eine `credentials.json` im Projektverzeichnis:
 
 ### Option 1: GUI
 
-Doppelklick auf `start_ui.py` oder:
+Unter Windows: Doppelklick auf `start_ui.bat` (empfohlen). Der Starter findet
+die passende Python-Installation und zeigt fehlende Abhängigkeiten an, statt
+das Fenster sofort zu schließen.
+
+Alternativ:
 
 ```bash
-python -m moodle_download.ui
+python start_ui.py
 ```
 
 Die GUI bietet:
 - Eingabefeld für URL(s)
 - Ausgabeverzeichnis auswählen
-- Checkboxen für Download-Typen
-- Update-Modus Checkbox
+- Filter, Tiefenwahl und Update-Modus
+- Checkboxen für YouTube-Videos und externe Webseiten-Archive
+- Schaltbaren AI-ready Export
 - Live-Log mit Fortschritt
+- Download abbrechen und Zielordner direkt öffnen
 
 --- 
 
@@ -111,6 +122,18 @@ python -m moodle_download URL --update
 python -m moodle_download URL --force
 ```
 
+**Zusätzlich für AI-Bots strukturieren:**
+```bash
+python -m moodle_download URL --optimize-ai
+```
+
+**YouTube-Videos statt nur der Links herunterladen:**
+```bash
+python -m moodle_download URL --download-youtube
+```
+
+Externe Webseiten werden standardmäßig zusätzlich als Markdown archiviert. Mit `--no-scrape-external` bleibt nur der Link erhalten.
+
 ## Parameter
 
 | Parameter | Beschreibung | Beispiel |
@@ -124,6 +147,31 @@ python -m moodle_download URL --force
 | `--depth`, `-d` | Scraping-Tiefe | `--depth deep` |
 | `--update` | Nur neue/geänderte Dateien | `--update` |
 | `--force` | Alles neu herunterladen | `--force` |
+| `--optimize-ai`, `--ai` | AI-ready Struktur und Kontext-Pakete erzeugen | `--ai` |
+| `--download-youtube` | Einzelne YouTube-Videos zusätzlich zum Link herunterladen | `--download-youtube` |
+| `--[no-]scrape-external` | Externe Webseiten als Markdown archivieren oder deaktivieren | `--no-scrape-external` |
+
+## Externe Links und YouTube
+
+- Jeder externe Link wird immer als `.url`-Datei gespeichert.
+- YouTube-Videos werden nur heruntergeladen, wenn die Checkbox oder `--download-youtube` aktiv ist. Playlists und ganze Kanäle werden bewusst nicht automatisch geladen.
+- Ohne FFmpeg wählt der Downloader eine kombinierte Video-/Audio-Datei; mit FFmpeg kann `yt-dlp` höherwertige getrennte Streams zusammenführen.
+- Manche YouTube-Varianten benötigen zusätzlich eine JavaScript-Laufzeit wie Node.js oder Deno. Falls `yt-dlp` nicht laden kann, bleibt der Link erhalten und der Fehler erscheint im Log.
+- Normale öffentliche Webseiten werden als `Webseite.md` archiviert, wenn sie HTML- oder Textinhalt liefern und die Seite Archivierung nicht per `noarchive` untersagt.
+- Private beziehungsweise lokale Netzwerkadressen, Binärantworten, sehr große Seiten und ungeeignete Kurzseiten werden nicht automatisch ausgelesen.
+
+Bitte lade Videos nur herunter, wenn du dazu berechtigt bist und die Nutzungsbedingungen der Quelle dies erlauben.
+
+## AI-ready Export
+
+Wenn der Schalter in der GUI oder `--optimize-ai` aktiv ist, entsteht im Kursordner zusätzlich `_AI_READY/`:
+
+- `course_structure.json` bildet Abschnitte, Unterabschnitte und Activities ab.
+- `manifest.jsonl` beschreibt jede lokale Datei samt Pfad, Typ und Größe.
+- `chunks/chunk_*.md` enthält textlesbare Inhalte in stabiler Reihenfolge und handlichen Paketen.
+- Binärdateien wie PDFs, Präsentationen oder Videos bleiben an ihrem Originalort und werden im Manifest referenziert.
+
+Damit können AI-Tools zuerst die Struktur lesen und anschließend gezielt die benötigten Quellen laden, ohne den Zusammenhang des Kurses zu verlieren.
 
 ### Verfügbare Typen für --include/--exclude
 
@@ -218,12 +266,16 @@ moodle-download/
 │       ├── cli.py               # Kommandozeile
 │       ├── browser.py           # Browser-Detection
 │       ├── downloader.py        # Download-Logik
+│       ├── ai_export.py         # AI-ready Struktur & Kontext-Pakete
 │       ├── parsers.py           # HTML → Markdown
 │       ├── logger.py            # Logging
 │       ├── state.py             # Update-Modus
 │       ├── ui.py                # GUI
 │       └── scrapers/            # Activity-Scraper
 │           ├── assignment.py
+│           ├── common.py        # Gemeinsame Discovery-/Crawl-Logik
+│           ├── generic.py       # Fallback für alle weiteren Module
+│           ├── external.py      # Webseiten- & YouTube-Verarbeitung
 │           ├── quiz.py
 │           └── ...
 ├── download.bat                 # Interaktives Menü

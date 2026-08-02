@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ========================================
-echo    Moodle Kurs-Downloader v2.0
+echo    Moodle Kurs-Downloader v2.2
 echo ========================================
 echo.
 
@@ -116,6 +116,30 @@ set "DEPTH_ARG=--depth deep"
 if /i "!DEPTH!"=="S" set "DEPTH_ARG=--depth shallow"
 echo.
 
+REM Schritt 6: AI-ready Export
+echo [6] AI-ready Export
+echo ----------------------------------------
+echo Erstellt Strukturkarte, Manifest und AI-Kontext-Pakete.
+set "AI_CHOICE="
+set /p "AI_CHOICE=Aktivieren? (J/N) [N]: "
+set "AI_ARG="
+if /i "!AI_CHOICE!"=="J" set "AI_ARG=--optimize-ai"
+echo.
+
+REM Schritt 7: Externe Links
+echo [7] Externe Links
+echo ----------------------------------------
+set "YOUTUBE_CHOICE="
+set /p "YOUTUBE_CHOICE=YouTube-Videos herunterladen? (J/N) [N]: "
+set "YOUTUBE_ARG="
+if /i "!YOUTUBE_CHOICE!"=="J" set "YOUTUBE_ARG=--download-youtube"
+
+set "WEB_CHOICE="
+set /p "WEB_CHOICE=Webseiten als Markdown archivieren? (J/N) [J]: "
+set "WEB_ARG="
+if /i "!WEB_CHOICE!"=="N" set "WEB_ARG=--no-scrape-external"
+echo.
+
 REM Bestaetigung
 echo ========================================
 echo   Kurse:  !URL_COUNT!
@@ -137,7 +161,7 @@ echo Starte Download...
 echo.
 
 set PYTHONPATH=%~dp0src
-python -m moodle_download !URL_ARGS! --output "!OUTPUT_DIR!" !DEPTH_ARG! !INCLUDE_ARG! !USERNAME_ARG! !PASSWORD_ARG!
+python -m moodle_download !URL_ARGS! --output "!OUTPUT_DIR!" !DEPTH_ARG! !INCLUDE_ARG! !AI_ARG! !YOUTUBE_ARG! !WEB_ARG! !USERNAME_ARG! !PASSWORD_ARG!
 
 echo.
 echo Fertig!

@@ -6,7 +6,7 @@ Lädt alle Inhalte eines Moodle-Kurses herunter.
 
 from pathlib import Path
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 __author__ = "Julian"
 
 # Paths

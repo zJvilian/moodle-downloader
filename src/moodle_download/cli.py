@@ -1,7 +1,9 @@
 """Command-line interface for Moodle Downloader."""
 
-import sys
 import argparse
+import os
+import re
+import sys
 from pathlib import Path
 
 # Fix Windows console encoding for Unicode
@@ -17,6 +19,52 @@ from .scrapers import process_resource
 from . import DOWNLOADS_DIR
 
 
+_GENERIC_SECTION_NAME = re.compile(r"^(?:abschnitt|section)(?:\s+\d+)?$", re.IGNORECASE)
+_SECTION_NAME_PREFIX = re.compile(
+    r"^(?:abschnitt|section)\s*\d*\s*(?:[-:._]\s*)?(.*)$",
+    re.IGNORECASE,
+)
+
+
+def _is_generic_section_name(name: str) -> bool:
+    return bool(_GENERIC_SECTION_NAME.fullmatch(" ".join(str(name or "").split())))
+
+
+def _section_folder_name(position: int | str, title: str) -> str:
+    """Combine a stable section position with its visible Moodle title."""
+    number = re.sub(r"[^0-9A-Za-z-]+", "", str(position)) or "1"
+    visible_title = " ".join(str(title or "").split())
+    match = _SECTION_NAME_PREFIX.match(visible_title)
+    if match:
+        visible_title = match.group(1).strip()
+    prefix = f"Abschnitt_{number}"
+    if not visible_title or _is_generic_section_name(visible_title):
+        return prefix
+    suffix = clean_filename(visible_title, max_length=44, is_directory=True)
+    return clean_filename(f"{prefix}_{suffix}", max_length=58, is_directory=True)
+
+
+def _section_directory(
+    course_dir: Path,
+    raw_path: list[str],
+    path_ids: list[str],
+    cache: dict[tuple[str, ...], Path],
+) -> Path:
+    """Build stable nested paths; children always reuse their parent's path."""
+    current = course_dir
+    prefix: list[str] = []
+    for index, part in enumerate(raw_path):
+        prefix.append(str(path_ids[index] if index < len(path_ids) else part))
+        key = tuple(prefix)
+        if key in cache:
+            current = cache[key]
+            continue
+        available = max(12, min(52, 172 - len(str(current)) - 1))
+        current /= clean_filename(part, max_length=available, is_directory=True)
+        cache[key] = current
+    return current
+
+
 def parse_course_url(url: str) -> tuple[str, str, str]:
     """Parse a Moodle course URL."""
     from urllib.parse import urlparse, parse_qs
@@ -24,7 +72,7 @@ def parse_course_url(url: str) -> tuple[str, str, str]:
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query)
     course_id = query_params.get("id", [None])[0]
-    base_url = f"{parsed.scheme}://{parsed.hostname}"
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
     
     if not course_id:
         print("❌ Keine Kurs-ID in der URL gefunden")
@@ -46,6 +94,16 @@ def should_download(activity_type: str, include_types: list, exclude_types: list
         'url': ['link', 'url'],
         'choice': ['choice'],
         'label': ['description', 'label'],
+        'lesson': ['description', 'lesson'],
+        'feedback': ['description', 'feedback'],
+        'glossary': ['description', 'glossary'],
+        'wiki': ['description', 'wiki'],
+        'workshop': ['description', 'file', 'workshop'],
+        'database': ['description', 'file', 'database'],
+        'data': ['description', 'file', 'database'],
+        'h5pactivity': ['description', 'file', 'h5p'],
+        'scorm': ['file', 'scorm'],
+        'lti': ['link', 'lti'],
     }
     
     categories = type_categories.get(activity_type, [activity_type])
@@ -80,6 +138,18 @@ Beispiele:
     parser.add_argument('--depth', '-d', choices=['shallow', 'deep'], default='deep')
     parser.add_argument('--update', action='store_true', help='Nur neue/geaenderte Dateien herunterladen')
     parser.add_argument('--force', action='store_true', help='Alles neu herunterladen')
+    parser.add_argument(
+        '--optimize-ai', '--ai', dest='optimize_ai', action='store_true',
+        help='Zusätzlich einen strukturierten AI-Ready-Export erzeugen',
+    )
+    parser.add_argument(
+        '--download-youtube', action='store_true',
+        help='YouTube-Videos herunterladen (Links werden immer gespeichert)',
+    )
+    parser.add_argument(
+        '--scrape-external', action=argparse.BooleanOptionalAction, default=True,
+        help='Geeignete externe Webseiten zusätzlich als Markdown archivieren',
+    )
     
     args = parser.parse_args()
     
@@ -110,14 +180,17 @@ def _create_skip_note(section_dir: Path, name: str, url: str, reason: str):
 def process_single_course(driver, course_url: str, output_dir: Path, 
                          include_types: list, exclude_types: list, 
                          logger, course_num: int = 1, total_courses: int = 1,
-                         update_mode: bool = False, force: bool = False) -> dict:
+                         update_mode: bool = False, force: bool = False,
+                         depth: str = 'deep', optimize_ai: bool = False,
+                         download_youtube: bool = False,
+                         scrape_external: bool = True) -> dict:
     """Process a single course and return stats."""
-    from .downloader import reset_download_tracker, set_download_state
+    from .downloader import reset_download_tracker, set_download_options
     from .state import DownloadState
     
     reset_download_tracker()
     
-    course_url, course_id, base_url = parse_course_url(course_url)
+    course_url, _course_id, _base_url = parse_course_url(course_url)
     
     prefix = f"[{course_num}/{total_courses}] " if total_courses > 1 else ""
     print(f"\n{prefix}📚 Kurs: {course_url}")
@@ -137,11 +210,13 @@ def process_single_course(driver, course_url: str, output_dir: Path,
     print(f"📂 Download-Verzeichnis: {course_dir}")
     print("=" * 50)
     
-    # Initialize state for incremental updates
+    # Always keep state so every URL retains a stable local path on reruns.
+    state = DownloadState(course_dir)
+    set_download_options(state=state, update=update_mode, force=force)
     if update_mode:
-        state = DownloadState(course_dir)
-        set_download_state(state)
         print(f"📊 Update-Modus: {len(state.state)} Dateien bereits heruntergeladen")
+    if force:
+        print("🔁 Force-Modus: Alle erreichbaren Dateien werden neu geladen")
     
     cookies = get_cookies_from_driver(driver)
     
@@ -149,12 +224,33 @@ def process_single_course(driver, course_url: str, output_dir: Path,
     total_activities = sum(len(s['resources']) for s in sections)
     activity_num = 0
     
+    used_section_dirs = {}
+    section_path_cache = {(): course_dir}
     for section_idx, section in enumerate(sections):
-        section_safe = clean_filename(section["name"], is_directory=True)
-        section_dir = course_dir / section_safe
+        raw_path = section.get("path") or [section["name"]]
+        path_positions = section.get("path_positions") or []
+        folder_path = [
+            _section_folder_name(
+                path_positions[depth] if depth < len(path_positions) else (section_idx + 1 if depth == len(raw_path) - 1 else depth + 1),
+                part,
+            )
+            for depth, part in enumerate(raw_path)
+        ]
+        path_ids = section.get("path_ids") or raw_path
+        section_dir = _section_directory(course_dir, folder_path, path_ids, section_path_cache)
+        if section_dir == course_dir:
+            section_dir = course_dir / f"Abschnitt_{section_idx + 1}"
+        directory_key = str(section_dir).casefold()
+        section_id = str(section.get("id", section_idx))
+        if directory_key in used_section_dirs and used_section_dirs[directory_key] != section_id:
+            section_dir = section_dir.with_name(f"{section_dir.name}_{section_idx + 1}")
+            directory_key = str(section_dir).casefold()
+            section_path_cache[tuple(str(item) for item in path_ids)] = section_dir
+        used_section_dirs[directory_key] = section_id
         section_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"\n📁 [{section_idx + 1}/{len(sections)}] {section['name']}")
+        indent = "  " * int(section.get("level", 0))
+        print(f"\n{indent}📁 [{section_idx + 1}/{len(sections)}] {' / '.join(raw_path)}")
         sys.stdout.flush()
         
         for resource in section["resources"]:
@@ -171,7 +267,15 @@ def process_single_course(driver, course_url: str, output_dir: Path,
             sys.stdout.flush()
             
             try:
-                count = process_resource(driver, resource, section_dir, cookies)
+                count = process_resource(
+                    driver,
+                    resource,
+                    section_dir,
+                    cookies,
+                    depth=depth,
+                    download_youtube=download_youtube,
+                    scrape_external=scrape_external,
+                )
                 if count > 0:
                     if act_type == 'url':
                         stats['links'] += count
@@ -187,7 +291,7 @@ def process_single_course(driver, course_url: str, output_dir: Path,
                     _create_skip_note(section_dir, name, resource["url"], "Inhalt gesperrt")
                 else:
                     stats['skipped'] += 1
-                    print(f" → übersprungen")
+                    print(" → übersprungen")
                     logger.log_skip(name, "Kein Inhalt gefunden")
                     _create_skip_note(section_dir, name, resource["url"], "Kein Inhalt gefunden")
                 sys.stdout.flush()
@@ -197,18 +301,18 @@ def process_single_course(driver, course_url: str, output_dir: Path,
                 logger.log_error(name, str(e))
                 sys.stdout.flush()
     
-    # Remove duplicate files after download
-    from .downloader import remove_duplicate_files
-    duplicates_removed = remove_duplicate_files(course_dir)
-    if duplicates_removed > 0:
-        print(f"   🗑️ {duplicates_removed} Duplikate entfernt")
+    state.save()
+    print(f"   📊 Status gespeichert: {len(state.state)} Dateien")
+
+    if optimize_ai:
+        from .ai_export import build_ai_export
+        ai_stats = build_ai_export(course_dir, course_title, course_url, sections)
+        print(
+            f"   🧠 AI-Ready: {ai_stats['file_count']} Dateien indexiert, "
+            f"{ai_stats['chunk_count']} Kontext-Paket(e)"
+        )
     
-    # Save state for incremental updates
-    if update_mode and 'state' in locals():
-        state.save()
-        print(f"   📊 Status gespeichert: {len(state.state)} Dateien")
-    
-    log_file = logger.write_summary(course_title, course_url)
+    logger.write_summary(course_title, course_url)
     
     print(f"\n{'=' * 50}")
     print(f"✅ Kurs abgeschlossen: {course_title}")
@@ -231,7 +335,7 @@ def main():
     
     logger = setup_logging(output_dir)
     
-    print(f"📚 Moodle-Kurs-Downloader")
+    print("📚 Moodle-Kurs-Downloader")
     print("=" * 50)
     print(f"Kurse:    {len(args.urls)}")
     print(f"Output:   {output_dir}")
@@ -240,10 +344,19 @@ def main():
         print(f"Include:  {', '.join(include_types)}")
     if exclude_types:
         print(f"Exclude:  {', '.join(exclude_types)}")
+    if args.optimize_ai:
+        print("AI-Ready: aktiviert")
+    print(f"YouTube:  {'Video + Link' if args.download_youtube else 'nur Link'}")
+    print(f"Webseiten: {'Markdown + Link' if args.scrape_external else 'nur Link'}")
     
     creds = None
     if args.username and args.password:
         creds = {'username': args.username, 'password': args.password}
+    elif os.environ.get("MOODLE_DOWNLOAD_USERNAME") and os.environ.get("MOODLE_DOWNLOAD_PASSWORD"):
+        creds = {
+            'username': os.environ["MOODLE_DOWNLOAD_USERNAME"],
+            'password': os.environ["MOODLE_DOWNLOAD_PASSWORD"],
+        }
     else:
         from . import CREDENTIALS_FILE
         if CREDENTIALS_FILE.exists():
@@ -264,18 +377,28 @@ def main():
     driver = setup_browser_driver()
     
     try:
-        if not login_to_moodle(driver, creds["username"], creds["password"]):
+        if not login_to_moodle(driver, creds["username"], creds["password"], args.urls[0]):
             print("\n❌ Login fehlgeschlagen!")
             sys.exit(1)
+        from urllib.parse import urlparse
+        active_host = urlparse(args.urls[0]).netloc.casefold()
         
         all_stats = {'files': 0, 'descriptions': 0, 'links': 0, 'errors': 0, 'skipped': 0, 'filtered': 0}
         
         for i, url in enumerate(args.urls, 1):
             try:
+                course_host = urlparse(url).netloc.casefold()
+                if course_host != active_host:
+                    if not login_to_moodle(driver, creds["username"], creds["password"], url):
+                        raise RuntimeError(f"Login bei {course_host} fehlgeschlagen")
+                    active_host = course_host
                 stats = process_single_course(
                     driver, url, output_dir, include_types, exclude_types, 
                     logger, i, len(args.urls),
-                    update_mode=args.update, force=args.force
+                    update_mode=args.update, force=args.force,
+                    depth=args.depth, optimize_ai=args.optimize_ai,
+                    download_youtube=args.download_youtube,
+                    scrape_external=args.scrape_external,
                 )
                 for key in all_stats:
                     all_stats[key] += stats.get(key, 0)
@@ -285,7 +408,7 @@ def main():
                 all_stats['errors'] += 1
         
         print(f"\n{'=' * 50}")
-        print(f"✅ Alle Kurse abgeschlossen!")
+        print("✅ Alle Kurse abgeschlossen!")
         print(f"\n📊 Gesamt ({len(args.urls)} Kurse):")
         print(f"   📄 Dateien: {all_stats['files']}")
         print(f"   📝 Beschreibungen: {all_stats['descriptions']}")
@@ -295,6 +418,8 @@ def main():
         if all_stats['errors'] > 0:
             print(f"   ❌ Fehler: {all_stats['errors']}")
         print(f"\n   Gespeichert in: {output_dir}")
+        if all_stats['errors'] > 0:
+            sys.exit(2)
         
     except Exception as e:
         print(f"\n❌ Fehler: {e}")
