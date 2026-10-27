@@ -1,5 +1,5 @@
 # Credentials (sensitive!)
-credentials.json
+.env
 
 # Downloads
 downloads/
@@ -8,7 +8,7 @@ downloads/
 *.log
 download_log_*.txt
 
-# Python
+# Python & portable runtime
 __pycache__/
 *.pyc
 *.pyo
@@ -16,6 +16,7 @@ __pycache__/
 dist/
 build/
 .eggs/
+.tools/
 
 # Virtual environment
 venv/

@@ -1,10 +1,12 @@
-"""Regression tests for structure, discovery, and AI-ready exports."""
+"""Regression tests for structure, discovery, AI-ready exports, and the local web app."""
 
 import json
 import sys
 import tempfile
+import threading
 import types
 import unittest
+import urllib.request
 from pathlib import Path
 
 
@@ -22,16 +24,17 @@ if "requests" not in sys.modules:
     sys.modules["requests"] = requests_stub
 
 
-from moodle_download.ai_export import build_ai_export
-from moodle_download import cli
 from moodle_download import downloader
-from moodle_download.cli import _section_folder_name
+from moodle_download import engine
+from moodle_download import webapp
+from moodle_download.ai_export import build_ai_export
 from moodle_download.downloader import clean_filename, find_download_links_in_html
-from moodle_download.state import DownloadState
+from moodle_download.engine import _section_folder_name, load_saved_credentials, save_credentials, valid_course_url
 from moodle_download.parsers import extract_content_regions, html_to_markdown
 from moodle_download.scrapers import ACTIVITY_SCRAPERS, process_resource
 from moodle_download.scrapers import external as external_scraper
 from moodle_download.scrapers import url as url_scraper
+from moodle_download.state import DownloadState
 
 
 class MarkdownTests(unittest.TestCase):
@@ -56,6 +59,72 @@ class MarkdownTests(unittest.TestCase):
         source = "<nav>ignore</nav><main><article><p>Keep this</p></article></main>"
         regions = extract_content_regions(source, tag_names=("main",))
         self.assertEqual(["<article><p>Keep this</p></article>"], regions)
+
+
+class WebAppTests(unittest.TestCase):
+    def test_course_url_validation(self):
+        self.assertTrue(valid_course_url("https://moodle.test/course/view.php?id=42"))
+        self.assertFalse(valid_course_url("https://moodle.test/course/view.php"))
+        self.assertFalse(valid_course_url("not-a-url?id=42"))
+
+    def test_env_credentials_roundtrip(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            temp_path = Path(temporary)
+            env_file = temp_path / ".env"
+            save_credentials("student.one", 'pa"ss#word', env_path=env_file)
+            self.assertTrue(env_file.exists())
+            loaded = load_saved_credentials(env_path=env_file)
+            self.assertEqual("student.one", loaded["username"])
+            self.assertEqual('pa"ss#word', loaded["password"])
+
+    def test_web_server_serves_ui_and_api_endpoints(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            temp_path = Path(temporary)
+            env_file = temp_path / ".env"
+            save_credentials("alice", "secret", env_path=env_file)
+            downloads_dir = temp_path / "downloads"
+            course_dir = downloads_dir / "Test_Course" / "Abschnitt_1"
+            course_dir.mkdir(parents=True)
+            (course_dir / "lecture.pdf").write_bytes(b"%PDF-1.4")
+
+            manager = webapp.JobManager(env_file=env_file, default_output=downloads_dir)
+            server, _ = webapp.create_server(host="127.0.0.1", port=0, manager=manager)
+            host, port = server.server_address[:2]
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://{host}:{port}"
+
+            try:
+                with urllib.request.urlopen(f"{base_url}/") as response:
+                    html = response.read().decode("utf-8")
+                    self.assertEqual(200, response.status)
+                    self.assertIn("Moodle Downloader", html)
+
+                with urllib.request.urlopen(f"{base_url}/api/config") as response:
+                    config = json.loads(response.read().decode("utf-8"))
+                    self.assertTrue(config["has_saved_credentials"])
+                    self.assertEqual("alice", config["saved_username"])
+
+                with urllib.request.urlopen(f"{base_url}/api/courses") as response:
+                    courses = json.loads(response.read().decode("utf-8"))["courses"]
+                    self.assertEqual(1, len(courses))
+                    self.assertEqual("Test_Course", courses[0]["name"])
+                    self.assertEqual(1, courses[0]["files"])
+
+                # Starting with invalid URL returns 400
+                req = urllib.request.Request(
+                    f"{base_url}/api/download/start",
+                    data=json.dumps({"urls": ["https://moodle.test/no-id"]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req)
+                self.assertEqual(400, ctx.exception.code)
+                ctx.exception.close()
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -286,18 +355,18 @@ class CourseStructureTests(unittest.TestCase):
             def write_summary(self, *args):
                 return None
 
-        originals = cli.get_course_content, cli.get_cookies_from_driver, cli.process_resource
+        originals = engine.get_course_content, engine.get_cookies_from_driver, engine.process_resource
         try:
-            cli.get_course_content = lambda driver, url: (sections, "Course")
-            cli.get_cookies_from_driver = lambda driver: {}
+            engine.get_course_content = lambda driver, url: (sections, "Course")
+            engine.get_cookies_from_driver = lambda driver: {}
 
             def fake_process(driver, resource, section_dir, cookies, **kwargs):
                 (section_dir / f"{resource['name']}.md").write_text("content", encoding="utf-8")
                 return 1
 
-            cli.process_resource = fake_process
+            engine.process_resource = fake_process
             with tempfile.TemporaryDirectory() as temporary:
-                cli.process_single_course(
+                engine.process_single_course(
                     object(),
                     "https://moodle.test/course/view.php?id=1",
                     Path(temporary),
@@ -309,7 +378,7 @@ class CourseStructureTests(unittest.TestCase):
                 self.assertTrue((course / "Abschnitt_1_Week_1" / "Overview.md").exists())
                 self.assertTrue((course / "Abschnitt_1_Week_1" / "Abschnitt_2_Topic_A" / "Lesson.md").exists())
         finally:
-            cli.get_course_content, cli.get_cookies_from_driver, cli.process_resource = originals
+            engine.get_course_content, engine.get_cookies_from_driver, engine.process_resource = originals
 
 
 if __name__ == "__main__":
