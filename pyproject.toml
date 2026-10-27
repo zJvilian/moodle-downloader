@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moodle-download"
-version = "2.2.0"
-description = "Download all content from Moodle courses"
+version = "3.0.0"
+description = "Browser-based local web app to download all content from Moodle courses"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -17,10 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-moodle-download = "moodle_download.cli:main"
-
-[project.gui-scripts]
-moodle-download-ui = "moodle_download.ui:main"
+moodle-download = "moodle_download.webapp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
